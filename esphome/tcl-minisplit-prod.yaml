@@ -1,0 +1,138 @@
+substitutions:
+  node_name: laser-room-mini
+  device_verbose_name: "Laser Room Mini Split"
+  ipaddress: 192.168.30.40
+
+packages:
+  device_base: !include 01_common/device_base.yaml
+
+esphome:
+  name: ${node_name}
+  friendly_name: ${device_verbose_name}
+
+esp8266:
+  board: esp_wroom_02
+  restore_from_flash: true
+
+logger:
+  level: WARN
+  baud_rate: 0
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+# Single UART for TX+RX to HVAC
+uart:
+  tx_pin: GPIO15
+  rx_pin: GPIO13
+  baud_rate: 9600
+  parity: EVEN
+
+# Pioneer WYT/WT Series Mini Split Controller
+pioneer_minisplit:
+  name: "${device_verbose_name}"
+  
+  # Temperature sensors (HA converts to your preferred unit)
+  set_temperature:
+    name: "Set Temp"
+  current_temperature:
+    name: "Current Temp"
+  coil_temperature:
+    name: "Indoor Coil Temp"
+  
+  # Outdoor unit sensors
+  outdoor_temp:
+    name: "Outdoor Temp"
+  condenser_coil_temp:
+    name: "Condenser Coil Temp"
+  discharge_temp:
+    name: "Compressor Discharge Temp"
+  compressor_freq:
+    name: "Compressor Frequency"
+  indoor_fan_rpm:
+    name: "Indoor Fan RPM"
+  outdoor_fan_speed:
+    name: "Outdoor Fan Speed"
+  current_amps:
+    name: "Current Draw"
+  
+  # Status flags
+  heat_mode_active:
+    name: "Heat Mode Active"
+  outdoor_running:
+    name: "Outdoor Unit Status"
+  
+  # HVAC Status
+  power:
+    name: "Power"
+  mode:
+    name: "Mode"
+  fan:
+    name: "Fan Speed"
+  turbo:
+    name: "Turbo Strong"
+  mute:
+    name: "Mute Quiet"
+  
+  # Swing
+  swing:
+    name: "Swing (Combined)"
+  swing_v:
+    name: "Swing Vertical"
+  swing_h:
+    name: "Swing Horizontal"
+  
+  # Feature Flags
+  eco:
+    name: "Eco Mode"
+  display:
+    name: "Display"
+  health:
+    name: "Health Ion"
+  heater_8c:
+    name: "Frost Prevention"
+  timer:
+    name: "Timer Active"
+  timer_time:
+    name: "Timer Remaining"
+  sleep:
+    name: "Sleep Mode"
+  beep:
+    name: "Beep Buzzer"
+
+  # Control switches
+  display_switch:
+    name: "Display"
+  beep_switch:
+    name: "Beep Buzzer"
+  health_switch:
+    name: "Health Ion"
+  heater_8c_switch:
+    name: "Frost Prevention"
+
+  # Swing position selects
+  swing_v_select:
+    name: "Vertical Position"
+  swing_h_select:
+    name: "Horizontal Position"
+
+# Status LED
+output:
+  - platform: gpio
+    id: status_led
+    pin:
+      number: GPIO5
+      mode: output
+
+interval:
+  - interval: 1000ms
+    then:
+      - output.turn_on: status_led
+      - delay: 100ms
+      - output.turn_off: status_led
+
+button:
+  - platform: restart
+    name: "${device_verbose_name} Restart"

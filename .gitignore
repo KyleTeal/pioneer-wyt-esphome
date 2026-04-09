@@ -1,0 +1,50 @@
+# ESPHome build artifacts
+.esphome/
+**/.pioenvs/
+**/.piolibdeps/
+**/build/
+
+# Secrets - NEVER commit these
+secrets.yaml
+**/secrets.yaml
+
+# Custom device configs - these contain personal network info
+# Use the example configs as templates
+esphome/*-mini.yaml
+esphome/*-minisplit.yaml
+esphome/laser-*.yaml
+!esphome/example-*.yaml
+
+# Common includes (user-specific)
+esphome/01_common/
+
+# Data analysis files (debug data, logs)
+Data/
+
+# Old sniffer component (superseded by pioneer_minisplit)
+esphome/sniffer/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+*.txt
+
+# Uploads/temporary files
+uploads/
