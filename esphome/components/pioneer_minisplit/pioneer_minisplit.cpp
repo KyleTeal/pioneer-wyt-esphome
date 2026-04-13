@@ -1,5 +1,6 @@
 #include "pioneer_minisplit.h"
 #include "esphome/core/log.h"
+#include "esphome/core/version.h"
 
 namespace esphome {
 namespace pioneer_minisplit {
@@ -23,6 +24,12 @@ std::string PioneerMinisplit::format_history_(uint8_t *history) {
 void PioneerMinisplit::setup() {
   ESP_LOGI(TAG, "Pioneer Mini Split Controller Started");
   ESP_LOGI(TAG, "Protocol: 9600 8E1, XOR checksum");
+  
+#if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 4, 0)
+  // ESPHome 2026.4.0+: Set custom modes on entity (new API)
+  this->set_supported_custom_fan_modes({"Strong", "Mute"});
+#endif
+  
   this->send_heartbeat_();
 }
 
@@ -752,11 +759,11 @@ climate::ClimateTraits PioneerMinisplit::traits() {
     climate::CLIMATE_FAN_HIGH,
   });
   
-  // Custom fan modes for Strong and Mute
-  traits.set_supported_custom_fan_modes({
-    "Strong",
-    "Mute"
-  });
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 4, 0)
+  // Pre-2026.4.0: Set custom fan modes on traits (old API)
+  traits.set_supported_custom_fan_modes({"Strong", "Mute"});
+#endif
+  // 2026.4.0+: Custom fan modes are set in setup() and wired automatically
   
   // Swing modes removed from climate - use separate select entities instead
   
