@@ -207,6 +207,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   uint8_t pending_temp_ = 24;
   uint8_t pending_swing_v_ = 0x08;
   uint8_t pending_swing_h_ = 0x80;
+  bool pending_swing_v_active_ = true;
   bool pending_display_ = true;
   bool pending_beep_ = false;
   bool pending_eco_ = false;
