@@ -97,10 +97,20 @@ CONF_DISPLAY_SWITCH = "display_switch"
 CONF_BEEP_SWITCH = "beep_switch"
 CONF_HEALTH_SWITCH = "health_switch"
 CONF_HEATER_8C_SWITCH = "heater_8c_switch"
+# Manual "46°F freeze protection" / minimum heat: same BB bit as heater_8c_switch (TX byte10 b7, RX byte32 b7)
+CONF_FREEZE_PROTECTION_SWITCH = "freeze_protection_switch"
 
 # Select config keys
 CONF_SWING_V_SELECT = "swing_v_select"
 CONF_SWING_H_SELECT = "swing_h_select"
+CONF_SLEEP_SELECT = "sleep_select"
+
+# Aliases for easier config
+CONF_INDOOR_TEMP = "indoor_temp"
+CONF_COIL_TEMP_ALIAS = "coil_temp"
+CONF_CURRENT = "current"
+CONF_SWING_VERTICAL = "swing_vertical"
+CONF_SWING_HORIZONTAL = "swing_horizontal"
 
 CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     cv.GenerateID(): cv.declare_id(PioneerMinisplit),
@@ -244,9 +254,26 @@ CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     cv.Optional(CONF_BEEP_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:volume-high"),
     cv.Optional(CONF_HEALTH_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:hospital-box"),
     cv.Optional(CONF_HEATER_8C_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:snowflake-thermometer"),
+    cv.Optional(CONF_FREEZE_PROTECTION_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:snowflake-thermometer"),
     # Swing position selects
     cv.Optional(CONF_SWING_V_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-up-down"),
     cv.Optional(CONF_SWING_H_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-left-right"),
+    cv.Optional(CONF_SLEEP_SELECT): select.select_schema(PioneerSelect, icon="mdi:sleep"),
+    # Aliases
+    cv.Optional(CONF_INDOOR_TEMP): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS, icon=ICON_THERMOMETER, accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE, state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_COIL_TEMP_ALIAS): sensor.sensor_schema(
+        unit_of_measurement=UNIT_CELSIUS, icon="mdi:thermometer-water", accuracy_decimals=1,
+        device_class=DEVICE_CLASS_TEMPERATURE, state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_CURRENT): sensor.sensor_schema(
+        unit_of_measurement="A", icon="mdi:current-ac", accuracy_decimals=1,
+        device_class="current", state_class=STATE_CLASS_MEASUREMENT,
+    ),
+    cv.Optional(CONF_SWING_VERTICAL): select.select_schema(PioneerSelect, icon="mdi:arrow-up-down"),
+    cv.Optional(CONF_SWING_HORIZONTAL): select.select_schema(PioneerSelect, icon="mdi:arrow-left-right"),
 }).extend(cv.COMPONENT_SCHEMA).extend(uart.UART_DEVICE_SCHEMA)
 
 async def to_code(config):
@@ -262,6 +289,9 @@ async def to_code(config):
     if CONF_CURRENT_TEMP in config:
         sens = await sensor.new_sensor(config[CONF_CURRENT_TEMP])
         cg.add(var.set_current_temp_sensor(sens))
+    if CONF_INDOOR_TEMP in config:
+        sens = await sensor.new_sensor(config[CONF_INDOOR_TEMP])
+        cg.add(var.set_current_temp_sensor(sens))
     if CONF_PACKETS_TX in config:
         sens = await sensor.new_sensor(config[CONF_PACKETS_TX])
         cg.add(var.set_packets_tx_sensor(sens))
@@ -270,6 +300,9 @@ async def to_code(config):
         cg.add(var.set_packets_rx_sensor(sens))
     if CONF_COIL_TEMP in config:
         sens = await sensor.new_sensor(config[CONF_COIL_TEMP])
+        cg.add(var.set_coil_temp_sensor(sens))
+    if CONF_COIL_TEMP_ALIAS in config:
+        sens = await sensor.new_sensor(config[CONF_COIL_TEMP_ALIAS])
         cg.add(var.set_coil_temp_sensor(sens))
     
     # Outdoor/compressor sensors
@@ -293,6 +326,9 @@ async def to_code(config):
         cg.add(var.set_outdoor_fan_speed_sensor(sens))
     if CONF_CURRENT_AMPS in config:
         sens = await sensor.new_sensor(config[CONF_CURRENT_AMPS])
+        cg.add(var.set_current_amps_sensor(sens))
+    if CONF_CURRENT in config:
+        sens = await sensor.new_sensor(config[CONF_CURRENT])
         cg.add(var.set_current_amps_sensor(sens))
     
     # Text sensors
@@ -477,8 +513,15 @@ async def to_code(config):
         cg.add(var.set_health_switch(sw))
         cg.add(sw.set_parent(var))
         cg.add(sw.set_type(2))  # HEALTH
+    if CONF_HEATER_8C_SWITCH in config and CONF_FREEZE_PROTECTION_SWITCH in config:
+        raise cv.Invalid("Use only one of heater_8c_switch and freeze_protection_switch")
     if CONF_HEATER_8C_SWITCH in config:
         sw = await switch.new_switch(config[CONF_HEATER_8C_SWITCH])
+        cg.add(var.set_heater_8c_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(3))  # HEATER_8C
+    elif CONF_FREEZE_PROTECTION_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_FREEZE_PROTECTION_SWITCH])
         cg.add(var.set_heater_8c_switch(sw))
         cg.add(sw.set_parent(var))
         cg.add(sw.set_type(3))  # HEATER_8C
@@ -486,16 +529,40 @@ async def to_code(config):
     # Swing selects
     if CONF_SWING_V_SELECT in config:
         sel = await select.new_select(config[CONF_SWING_V_SELECT], options=[
-            "Off", "Auto Swing", "Swing Upper", "Swing Lower",
-            "Fixed 1 (Top)", "Fixed 2 (Upper)", "Fixed 3 (Middle)", "Fixed 4 (Mid-Low)", "Fixed 5 (Bottom)"
+            "Off", "Swing - Auto", "Swing - Upper", "Swing - Lower",
+            "Fixed Top", "Fixed Upper", "Fixed Middle", "Fixed Lower", "Fixed Bottom"
         ])
         cg.add(var.set_swing_v_select(sel))
         cg.add(sel.set_parent(var))
         cg.add(sel.set_type(0))  # SWING_V
     if CONF_SWING_H_SELECT in config:
         sel = await select.new_select(config[CONF_SWING_H_SELECT], options=[
-            "Off", "Auto Swing", "Swing Left", "Swing Center", "Swing Right",
-            "Fixed 1 (Far Left)", "Fixed 2 (Left)", "Fixed 3 (Center)", "Fixed 4 (Right)", "Fixed 5 (Far Right)"
+            "Off", "Swing - Auto", "Swing - Left", "Swing - Center", "Swing - Right",
+            "Fixed Far Left", "Fixed Left", "Fixed Center", "Fixed Right", "Fixed Far Right"
+        ])
+        cg.add(var.set_swing_h_select(sel))
+        cg.add(sel.set_parent(var))
+        cg.add(sel.set_type(1))  # SWING_H
+    if CONF_SLEEP_SELECT in config:
+        sel = await select.new_select(config[CONF_SLEEP_SELECT], options=[
+            "Off", "Standard", "Elderly", "Child",
+        ])
+        cg.add(var.set_sleep_select(sel))
+        cg.add(sel.set_parent(var))
+        cg.add(sel.set_type(2))  # SLEEP
+    # Swing aliases
+    if CONF_SWING_VERTICAL in config:
+        sel = await select.new_select(config[CONF_SWING_VERTICAL], options=[
+            "Off", "Swing - Auto", "Swing - Upper", "Swing - Lower",
+            "Fixed Top", "Fixed Upper", "Fixed Middle", "Fixed Lower", "Fixed Bottom"
+        ])
+        cg.add(var.set_swing_v_select(sel))
+        cg.add(sel.set_parent(var))
+        cg.add(sel.set_type(0))  # SWING_V
+    if CONF_SWING_HORIZONTAL in config:
+        sel = await select.new_select(config[CONF_SWING_HORIZONTAL], options=[
+            "Off", "Swing - Auto", "Swing - Left", "Swing - Center", "Swing - Right",
+            "Fixed Far Left", "Fixed Left", "Fixed Center", "Fixed Right", "Fixed Far Right"
         ])
         cg.add(var.set_swing_h_select(sel))
         cg.add(sel.set_parent(var))

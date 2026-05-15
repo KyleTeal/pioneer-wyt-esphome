@@ -12,7 +12,7 @@ decoded interpretations -- this is the table you cross-reference against
 the panel display / Tuya app to pin down byte->meaning mappings, then port
 into the ESPHome component.
 
-Frame structure (see docs/PROTOCOL.md):
+Frame structure (see reference/PROTOCOL.md):
 
   [HEADER] [DIR] [DIR2] [CMD] [LEN] [PAYLOAD...] [CHECKSUM]
      BB     XX    XX     XX    XX    ...           XX
@@ -47,7 +47,7 @@ Workflow:
   1. Capture a full session with the panel/app, annotated with what you did.
   2. Filter to type=state.
   3. Cross-reference each row's byte columns against the panel state at
-     that moment. Refine docs/PROTOCOL.md.
+     that moment. Refine reference/PROTOCOL.md.
   4. Port any new mappings into esphome/components/pioneer_minisplit/.
 """
 
@@ -339,7 +339,6 @@ def _decode_tx_command(buf):
 
     b32 = g(32)
     if b32 is not None:
-        # TX horizontal often has bit7 set as enable; show raw + masked.
         out["swing_h_pos"] = f"0x{b32:02X}"
 
     return out

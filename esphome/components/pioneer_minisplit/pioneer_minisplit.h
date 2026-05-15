@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/sensor/sensor.h"
@@ -14,6 +15,13 @@ namespace pioneer_minisplit {
 // Forward declaration
 class PioneerMinisplit;
 
+// Struct for persisting swing state to flash
+struct SwingState {
+  uint8_t swing_v;
+  bool swing_v_active;
+  uint8_t swing_h;
+};
+
 // Switch types (only for features not covered by climate presets/modes)
 enum SwitchType : uint8_t {
   SWITCH_DISPLAY = 0,
@@ -26,6 +34,7 @@ enum SwitchType : uint8_t {
 enum SelectType : uint8_t {
   SELECT_SWING_V = 0,
   SELECT_SWING_H = 1,
+  SELECT_SLEEP = 2,
 };
 
 // Generic switch class
@@ -76,6 +85,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   // Select setters
   void set_swing_v_select(PioneerSelect *sel) { this->swing_v_select_ = sel; }
   void set_swing_h_select(PioneerSelect *sel) { this->swing_h_select_ = sel; }
+  void set_sleep_select(PioneerSelect *sel) { this->sleep_select_ = sel; }
 
   // Sensor setters
   void set_set_temp_sensor(sensor::Sensor *s) { set_temp_sensor_ = s; }
@@ -176,6 +186,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   // Selects
   PioneerSelect *swing_v_select_{nullptr};
   PioneerSelect *swing_h_select_{nullptr};
+  PioneerSelect *sleep_select_{nullptr};
 
   // RX buffer
   uint8_t rx_buffer_[64];
@@ -207,6 +218,8 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   uint8_t pending_temp_ = 24;
   uint8_t pending_swing_v_ = 0x08;
   uint8_t pending_swing_h_ = 0x80;
+  bool pending_swing_v_active_ = true;
+  ESPPreferenceObject pref_;
   bool pending_display_ = true;
   bool pending_beep_ = false;
   bool pending_eco_ = false;

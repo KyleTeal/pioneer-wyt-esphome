@@ -1,9 +1,24 @@
 #include "pioneer_minisplit.h"
 #include "esphome/core/log.h"
 #include "esphome/core/version.h"
+#include "esphome/core/preferences.h"
 
 namespace esphome {
 namespace pioneer_minisplit {
+
+namespace {
+
+const char *sleep_choice_for_select(uint8_t sleep) {
+  switch (sleep) {
+    case 0: return "Off";
+    case 1: return "Standard";
+    case 2: return "Elderly";
+    case 3: return "Child";
+    default: return "Off";
+  }
+}
+
+}  // namespace
 
 static const char *const TAG = "pioneer_minisplit";
 
@@ -26,9 +41,19 @@ void PioneerMinisplit::setup() {
   ESP_LOGI(TAG, "Protocol: 9600 8E1, XOR checksum");
   
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 4, 0)
-  // ESPHome 2026.4.0+: Set custom modes on entity (new API)
-  this->set_supported_custom_fan_modes({"Strong", "Mute"});
+  this->set_supported_custom_fan_modes({"Strong"});
 #endif
+  
+  // Restore swing positions from flash
+  this->pref_ = global_preferences->make_preference<SwingState>(this->get_object_id_hash());
+  SwingState recovered{};
+  if (this->pref_.load(&recovered)) {
+    this->pending_swing_v_ = recovered.swing_v;
+    this->pending_swing_v_active_ = recovered.swing_v_active;
+    this->pending_swing_h_ = recovered.swing_h;
+    ESP_LOGI(TAG, "Restored swing state from flash: V=0x%02X active=%d, H=0x%02X", 
+             recovered.swing_v, recovered.swing_v_active, recovered.swing_h);
+  }
   
   this->send_heartbeat_();
 }
@@ -121,14 +146,14 @@ void PioneerMinisplit::send_heartbeat_() {
 }
 
 void PioneerMinisplit::send_command_() {
-  // Command: BB 00 01 03 1C [28 bytes] [xor] = 34 bytes
-  uint8_t packet[34] = {0};
+  // Command: BB 00 01 03 1D [29 bytes] [xor] = 35 bytes
+  uint8_t packet[35] = {0};
   
   packet[0] = 0xBB;
   packet[1] = 0x00;
   packet[2] = 0x01;
   packet[3] = 0x03;
-  packet[4] = 0x1C;  // 28 bytes payload
+  packet[4] = 0x1D;  // 29 bytes payload
   
   // Byte 7: flags1 [eco, display, beep, ontimer, offtimer, power, 0, 0]
   uint8_t flags1 = 0;
@@ -148,8 +173,14 @@ void PioneerMinisplit::send_command_() {
   // Byte 9: temp = 111 - setpoint
   packet[9] = 111 - this->pending_temp_;
   
-  // Byte 10: fan byte (includes 8c heater flag)
+  // Byte 10: fan byte with vertical louver enable bits and 8c heater flag
+  // Bits 3-5 (0x38) enable vertical louver motor movement
   uint8_t fan_byte = this->pending_fan_;
+  if (this->pending_swing_v_active_) {
+    fan_byte |= 0x38;
+  } else {
+    fan_byte &= 0xC7;
+  }
   if (this->pending_8c_heater_) fan_byte |= 0x80;
   packet[10] = fan_byte;
   
@@ -163,15 +194,15 @@ void PioneerMinisplit::send_command_() {
   // Byte 19: sleep mode
   packet[19] = this->pending_sleep_;
   
-  // Byte 31: swing_v position
-  packet[31] = this->pending_swing_v_;
+  // Byte 32: swing_v position
+  packet[32] = this->pending_swing_v_;
   
-  // Byte 32: swing_h position
-  packet[32] = this->pending_swing_h_;
+  // Byte 33: swing_h position
+  packet[33] = this->pending_swing_h_;
   
-  packet[33] = this->calculate_checksum_(packet, 33);
+  packet[34] = this->calculate_checksum_(packet, 34);
   
-  this->write_array(packet, sizeof(packet));
+  this->write_array(packet, 35);
   this->flush();
   
   this->tx_count_++;
@@ -236,9 +267,9 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   bool swing_h_active = (byte10 & 0x20) != 0;
   
   uint8_t sleep_mode = 0;
-  if (byte19 == 0x89) sleep_mode = 1;
-  else if (byte19 == 0x8A) sleep_mode = 2;
-  else if (byte19 == 0x8B) sleep_mode = 3;
+  if (byte19 == 0x89 || byte19 == 0xB1) sleep_mode = 1;
+  else if (byte19 == 0x8A || byte19 == 0xB2) sleep_mode = 2;
+  else if (byte19 == 0x8B || byte19 == 0xB3) sleep_mode = 3;
   
   bool heater_8c = (byte32 & 0x80) != 0;
   bool mute_flag = (byte33 & 0x80) != 0;
@@ -436,18 +467,20 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     }
   }
   
-  // Fan mode - use custom modes for Strong/Mute
   if (turbo && fan == 0x0B) {
     this->set_custom_fan_mode_("Strong");
-  } else if (mute_flag && fan == 0x09) {
-    this->set_custom_fan_mode_("Mute");
   } else {
-    switch (fan) {
-      case 0x08: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
-      case 0x09: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
-      case 0x0A: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
-      case 0x0B: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
-      default: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+    this->clear_custom_fan_mode_();
+    if (mute_flag && fan == 0x09) {
+      this->fan_mode = climate::CLIMATE_FAN_QUIET;
+    } else {
+      switch (fan) {
+        case 0x08: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+        case 0x09: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
+        case 0x0A: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
+        case 0x0B: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
+        default: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+      }
     }
   }
   
@@ -472,8 +505,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   this->current_temperature = current_temp;
   this->publish_state();
   
-  // Only sync pending state from RX when no command is pending
-  // This prevents RX from overwriting a pending user change before it's sent
+  // While a command is pending, do not overwrite pending_* from RX
   if (!this->command_pending_) {
     this->pending_power_ = power;
     this->pending_temp_ = set_temp;
@@ -483,6 +515,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     this->pending_health_ = health;
     this->pending_mute_ = mute_flag;
     this->pending_8c_heater_ = heater_8c;
+    this->pending_swing_v_active_ = swing_v_active;
     
     // Sync mode and fan from RX (convert RX mode to TX mode format)
     // RX: 01=Cool, 02=Fan, 03=Dry, 04=Heat, 05=Auto
@@ -513,14 +546,18 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     if (this->health_switch_) this->health_switch_->publish_state(health);
     if (this->heater_8c_switch_) this->heater_8c_switch_->publish_state(heater_8c);
     // Note: beep_switch_ state is TX only, can't read from RX
-  }
-
-  // Update select states from RX data
-  if (this->swing_v_select_) {
-    this->swing_v_select_->publish_state(this->swing_v_rx_str_(byte50, swing_v_active));
-  }
-  if (this->swing_h_select_) {
-    this->swing_h_select_->publish_state(this->swing_h_rx_str_(byte51, swing_h_active));
+    
+    // Update select states from RX data (only when not waiting to send a command)
+    if (this->swing_v_select_) {
+      this->swing_v_select_->publish_state(this->swing_v_rx_str_(byte50, swing_v_active));
+    }
+    if (this->swing_h_select_) {
+      this->swing_h_select_->publish_state(this->swing_h_rx_str_(byte51, swing_h_active));
+    }
+    if (this->sleep_select_) {
+      this->sleep_select_->publish_state(sleep_choice_for_select(sleep_mode));
+    }
+    this->pending_sleep_ = sleep_mode;
   }
 }
 
@@ -537,7 +574,7 @@ const char* PioneerMinisplit::mode_str_(uint8_t mode) {
 
 const char* PioneerMinisplit::fan_full_str_(uint8_t fan, bool turbo, bool mute) {
   if (fan == 0x0B && turbo) return "Strong";
-  if (fan == 0x09 && mute) return "Mute";
+  if (fan == 0x09 && mute) return "Quiet";
   switch (fan) {
     case 0x08: return "Auto";
     case 0x09: return "Low";
@@ -560,39 +597,41 @@ const char* PioneerMinisplit::sleep_str_(uint8_t sleep) {
 }
 
 const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active) {
+  // byte50 often 0 while sweep is active; use swing_active to disambiguate.
+  if (byte50 == 0x00 && swing_active) return "Swing - Auto";
   switch (byte50) {
     case 0x00: return "Off";
-    case 0x01: return "Fixed 1 (Top)";
-    case 0x02: return "Fixed 2 (Upper)";
-    case 0x03: return "Fixed 3 (Middle)";
-    case 0x04: return "Fixed 4 (Mid-Low)";
-    case 0x05: return "Fixed 5 (Bottom)";
-    case 0x08: return "Auto Swing";
-    case 0x10: return "Swing Upper";
-    case 0x18: return "Swing Lower";
-    default: return "Unknown";
+    case 0x01: return "Fixed Top";
+    case 0x02: return "Fixed Upper";
+    case 0x03: return "Fixed Middle";
+    case 0x04: return "Fixed Lower";
+    case 0x05: return "Fixed Bottom";
+    case 0x08: return "Swing - Auto";
+    case 0x10: return "Swing - Upper";
+    case 0x18: return "Swing - Lower";
+    default: return swing_active ? "Swing - Auto" : "Off";
   }
 }
 
 const char* PioneerMinisplit::swing_h_rx_str_(uint8_t byte51, bool swing_active) {
+  if (byte51 == 0x00 && swing_active) return "Swing - Auto";
   switch (byte51) {
     case 0x00: return "Off";
-    case 0x01: return "Fixed 1 (Far Left)";
-    case 0x02: return "Fixed 2 (Left)";
-    case 0x03: return "Fixed 3 (Center)";
-    case 0x04: return "Fixed 4 (Right)";
-    case 0x05: return "Fixed 5 (Far Right)";
-    case 0x08: return "Auto Swing";
-    case 0x10: return "Swing Left";
-    case 0x18: return "Swing Center";
-    case 0x20: return "Swing Right";
-    default: return "Unknown";
+    case 0x01: return "Fixed Far Left";
+    case 0x02: return "Fixed Left";
+    case 0x03: return "Fixed Center";
+    case 0x04: return "Fixed Right";
+    case 0x05: return "Fixed Far Right";
+    case 0x08: return "Swing - Auto";
+    case 0x10: return "Swing - Left";
+    case 0x18: return "Swing - Center";
+    case 0x20: return "Swing - Right";
+    default: return "Off";
   }
 }
 
 void PioneerMinisplit::control(const climate::ClimateCall &call) {
-  // Don't allow commands until we've synced state from HVAC at least once
-  // This prevents sending commands with default/uninitialized values
+  // Block control() until the first valid status decode (avoids bad defaults).
   if (!this->state_synced_) {
     ESP_LOGW(TAG, "Ignoring command - waiting for initial state sync from HVAC");
     return;
@@ -632,6 +671,10 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->pending_mute_ = false;
     switch (fan) {
       case climate::CLIMATE_FAN_AUTO: this->pending_fan_ = 0x38; break;
+      case climate::CLIMATE_FAN_QUIET: 
+        this->pending_fan_ = 0x3A; 
+        this->pending_mute_ = true; 
+        break;
       case climate::CLIMATE_FAN_LOW: this->pending_fan_ = 0x3A; break;
       case climate::CLIMATE_FAN_MEDIUM: this->pending_fan_ = 0x3B; break;
       case climate::CLIMATE_FAN_HIGH: this->pending_fan_ = 0x3D; break;
@@ -640,7 +683,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->command_pending_ = true;
   }
   
-  // Handle custom fan modes (Strong, Mute)
+  // Custom fan mode: Strong (Quiet uses CLIMATE_FAN_QUIET).
   if (call.has_custom_fan_mode()) {
     auto custom_fan = call.get_custom_fan_mode();
     this->pending_turbo_ = false;
@@ -648,9 +691,6 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     if (custom_fan == "Strong") {
       this->pending_fan_ = 0x3D;
       this->pending_turbo_ = true;
-    } else if (custom_fan == "Mute") {
-      this->pending_fan_ = 0x3A;
-      this->pending_mute_ = true;
     }
     this->command_pending_ = true;
   }
@@ -683,9 +723,6 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->command_pending_ = true;
   }
   
-  // Swing mode removed from climate - use separate select entities instead
-
-  // Optimistic state update - publish immediately, RX will correct if needed
   if (this->command_pending_) {
     // Update mode from pending values
     if (!this->pending_power_) {
@@ -705,18 +742,20 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     
     this->target_temperature = this->pending_temp_;
     
-    // Update fan mode based on pending state
     if (this->pending_turbo_) {
       this->set_custom_fan_mode_("Strong");
-    } else if (this->pending_mute_) {
-      this->set_custom_fan_mode_("Mute");
     } else {
-      switch (this->pending_fan_) {
-        case 0x38: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
-        case 0x3A: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
-        case 0x3B: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
-        case 0x3D: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
-        default: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+      this->clear_custom_fan_mode_();
+      if (this->pending_mute_) {
+        this->fan_mode = climate::CLIMATE_FAN_QUIET;
+      } else {
+        switch (this->pending_fan_) {
+          case 0x38: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+          case 0x3A: this->fan_mode = climate::CLIMATE_FAN_LOW; break;
+          case 0x3B: this->fan_mode = climate::CLIMATE_FAN_MEDIUM; break;
+          case 0x3D: this->fan_mode = climate::CLIMATE_FAN_HIGH; break;
+          default: this->fan_mode = climate::CLIMATE_FAN_AUTO; break;
+        }
       }
     }
     
@@ -729,6 +768,10 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
       this->preset = climate::CLIMATE_PRESET_SLEEP;
     } else {
       this->preset = climate::CLIMATE_PRESET_NONE;
+    }
+
+    if (this->sleep_select_) {
+      this->sleep_select_->publish_state(sleep_choice_for_select(this->pending_sleep_));
     }
     
     this->publish_state();
@@ -751,21 +794,18 @@ climate::ClimateTraits PioneerMinisplit::traits() {
     climate::CLIMATE_MODE_HEAT_COOL
   });
   
-  // Standard fan modes
+  // Fan: Auto, Quiet, Low, Medium, High; Strong is custom.
   traits.set_supported_fan_modes({
     climate::CLIMATE_FAN_AUTO,
+    climate::CLIMATE_FAN_QUIET,
     climate::CLIMATE_FAN_LOW,
     climate::CLIMATE_FAN_MEDIUM,
     climate::CLIMATE_FAN_HIGH,
   });
-  
+
 #if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 4, 0)
-  // Pre-2026.4.0: Set custom fan modes on traits (old API)
-  traits.set_supported_custom_fan_modes({"Strong", "Mute"});
+  traits.set_supported_custom_fan_modes({"Strong"});
 #endif
-  // 2026.4.0+: Custom fan modes are set in setup() and wired automatically
-  
-  // Swing modes removed from climate - use separate select entities instead
   
   // Standard presets
   traits.set_supported_presets({
@@ -816,63 +856,118 @@ void PioneerMinisplit::set_feature(SwitchType type, bool state) {
   this->command_pending_ = true;
 }
 
-// Swing position control from selects
+// Swing and sleep selects
 void PioneerMinisplit::set_swing_position(SelectType type, const std::string &value) {
   if (!this->state_synced_) {
     ESP_LOGW(TAG, "Ignoring select - waiting for initial state sync from HVAC");
     return;
   }
-  
-  if (type == SELECT_SWING_V) {
-    // Vertical swing positions from PROTOCOL.md
-    // TX: 0x08=Auto Swing, 0x88=Swing Upper, 0x48=Swing Lower
-    // Fixed: 0x20/0x24/0x28/0x2C/0x30 for positions 1-5
+
+  if (type == SELECT_SLEEP) {
     if (value == "Off") {
+      this->pending_sleep_ = 0;
+    } else if (value == "Standard") {
+      this->pending_sleep_ = 1;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    } else if (value == "Elderly") {
+      this->pending_sleep_ = 2;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    } else if (value == "Child") {
+      this->pending_sleep_ = 3;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    }
+    if (this->sleep_select_) this->sleep_select_->publish_state(value);
+
+    if (this->pending_eco_) {
+      this->preset = climate::CLIMATE_PRESET_ECO;
+    } else if (this->pending_turbo_) {
+      this->preset = climate::CLIMATE_PRESET_BOOST;
+    } else if (this->pending_sleep_ > 0) {
+      this->preset = climate::CLIMATE_PRESET_SLEEP;
+    } else {
+      this->preset = climate::CLIMATE_PRESET_NONE;
+    }
+    this->publish_state();
+
+    SwingState state{};
+    state.swing_v = this->pending_swing_v_;
+    state.swing_v_active = this->pending_swing_v_active_;
+    state.swing_h = this->pending_swing_h_;
+    this->pref_.save(&state);
+
+    this->command_pending_ = true;
+    return;
+  }
+
+  if (type == SELECT_SWING_V) {
+    // V uses same step pattern as H; H fixed/sweep adds 0x80 (see PROTOCOL / FIRMWARE_MAPPING).
+    if (value == "Off") {
+      this->pending_swing_v_active_ = false;
       this->pending_swing_v_ = 0x00;
-    } else if (value == "Auto Swing") {
+    } else if (value == "Swing - Auto") {
+      this->pending_swing_v_active_ = true;
       this->pending_swing_v_ = 0x08;
-    } else if (value == "Swing Upper") {
-      this->pending_swing_v_ = 0x88;
-    } else if (value == "Swing Lower") {
-      this->pending_swing_v_ = 0x48;
-    } else if (value == "Fixed 1 (Top)") {
-      this->pending_swing_v_ = 0x20;
-    } else if (value == "Fixed 2 (Upper)") {
-      this->pending_swing_v_ = 0x24;
-    } else if (value == "Fixed 3 (Middle)") {
-      this->pending_swing_v_ = 0x28;
-    } else if (value == "Fixed 4 (Mid-Low)") {
-      this->pending_swing_v_ = 0x2C;
-    } else if (value == "Fixed 5 (Bottom)") {
-      this->pending_swing_v_ = 0x30;
+    } else if (value == "Swing - Upper") {
+      this->pending_swing_v_active_ = true;
+      this->pending_swing_v_ = 0x10;
+    } else if (value == "Swing - Lower") {
+      this->pending_swing_v_active_ = true;
+      this->pending_swing_v_ = 0x18;
+    } else if (value == "Fixed Top") {
+      this->pending_swing_v_active_ = false;
+      this->pending_swing_v_ = 0x01;
+    } else if (value == "Fixed Upper") {
+      this->pending_swing_v_active_ = false;
+      this->pending_swing_v_ = 0x02;
+    } else if (value == "Fixed Middle") {
+      this->pending_swing_v_active_ = false;
+      this->pending_swing_v_ = 0x03;
+    } else if (value == "Fixed Lower") {
+      this->pending_swing_v_active_ = false;
+      this->pending_swing_v_ = 0x04;
+    } else if (value == "Fixed Bottom") {
+      this->pending_swing_v_active_ = false;
+      this->pending_swing_v_ = 0x05;
+    }
+    if (this->swing_v_select_) {
+      this->swing_v_select_->publish_state(value);
     }
   } else if (type == SELECT_SWING_H) {
-    // Horizontal swing positions from PROTOCOL.md
-    // TX: byte32 for enable, byte19 for position
-    // Enable: 0x80=off, 0x81=auto swing, 0x82-0x84=partial swing
-    // Fixed: byte19 0x20-0x30 for positions 1-5
     if (value == "Off") {
       this->pending_swing_h_ = 0x80;
-    } else if (value == "Auto Swing") {
+    } else if (value == "Swing - Auto") {
+      this->pending_swing_h_ = 0x88;
+    } else if (value == "Swing - Left") {
+      this->pending_swing_h_ = 0x90;
+    } else if (value == "Swing - Center") {
+      this->pending_swing_h_ = 0x98;
+    } else if (value == "Swing - Right") {
+      this->pending_swing_h_ = 0xA0;
+    } else if (value == "Fixed Far Left") {
       this->pending_swing_h_ = 0x81;
-    } else if (value == "Swing Left") {
+    } else if (value == "Fixed Left") {
       this->pending_swing_h_ = 0x82;
-    } else if (value == "Swing Center") {
+    } else if (value == "Fixed Center") {
       this->pending_swing_h_ = 0x83;
-    } else if (value == "Swing Right") {
+    } else if (value == "Fixed Right") {
       this->pending_swing_h_ = 0x84;
-    } else if (value == "Fixed 1 (Far Left)") {
-      this->pending_swing_h_ = 0xA0;  // 0x80 | 0x20
-    } else if (value == "Fixed 2 (Left)") {
-      this->pending_swing_h_ = 0xA4;  // 0x80 | 0x24
-    } else if (value == "Fixed 3 (Center)") {
-      this->pending_swing_h_ = 0xA8;  // 0x80 | 0x28
-    } else if (value == "Fixed 4 (Right)") {
-      this->pending_swing_h_ = 0xAC;  // 0x80 | 0x2C
-    } else if (value == "Fixed 5 (Far Right)") {
-      this->pending_swing_h_ = 0xB0;  // 0x80 | 0x30
+    } else if (value == "Fixed Far Right") {
+      this->pending_swing_h_ = 0x85;
+    }
+    if (this->swing_h_select_) {
+      this->swing_h_select_->publish_state(value);
     }
   }
+  
+  SwingState state{};
+  state.swing_v = this->pending_swing_v_;
+  state.swing_v_active = this->pending_swing_v_active_;
+  state.swing_h = this->pending_swing_h_;
+  this->pref_.save(&state);
+  
   this->command_pending_ = true;
 }
 

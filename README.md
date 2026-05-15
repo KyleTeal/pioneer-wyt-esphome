@@ -1,9 +1,9 @@
 # Pioneer WYT ESPHome Component
 
-![Unit Installed](images/unit-installed.jpg)
+![Unit Installed](reference/images/unit-installed.jpg)
 
-![PCB Front](images/pcb_front.jpeg)
-![PCB Back](images/pcb_back.jpeg)
+![PCB Front](reference/images/pcb_front.jpeg)
+![PCB Back](reference/images/pcb_back.jpeg)
 
 ## Tested Units
 
@@ -14,10 +14,9 @@ Should work with other units using the same [TST-DIAWIFITPD WiFi module](https:/
 ## What It Does
 
 - Full climate control (mode, temp, fan)
-- Eco, Turbo, Mute, Sleep modes
+- Eco, Turbo, Quiet, Strong, Sleep
 - Display and beep toggle
 - Vertical/horizontal swing with position control
-- Frost prevention (8°C heater)
 - Health/Ion
 - Sensors: indoor/outdoor temps, compressor freq, coil temps, fan speeds, current draw
 
@@ -40,21 +39,15 @@ external_components:
 
 ## Configuration
 
-Two example configs are included:
-
-**`example-production.yaml`** - Minimal setup for daily use. Just the sensors you actually want on a dashboard. Start here.
-
-**`example-debug.yaml`** - Everything. Raw bytes, packet history, debug sensors. Use this if you're investigating the protocol or something isn't working right. Creates 50+ entities.
-
-Both require a `secrets.yaml` with your WiFi credentials and API keys. See `secrets.yaml.example`.
+Copy `example.yaml` to your ESPHome configs and customize it. Requires a `secrets.yaml` with your WiFi credentials and API keys. See `secrets.yaml.example`.
 
 ## Climate Entity
 
 Creates a climate entity with:
 - **Modes:** Off, Cool, Heat, Dry, Fan Only, Auto
-- **Fan:** Auto, Low, Medium, High, plus Strong and Mute as custom modes
-- **Presets:** Eco, Boost (Turbo), Sleep
-- **Swing:** Separate select entities for precise vertical/horizontal positioning
+- **Fan:** Auto, Quiet, Low, Medium, High, Strong
+- **Presets:** Eco, Boost (Turbo), Sleep (Standard only)
+- **Swing / sleep selects:** Vertical and horizontal swing positions; optional `sleep_select` for DP 105 modes (Standard, Elderly, Child)
 
 ## Switches
 
@@ -63,11 +56,10 @@ Creates a climate entity with:
 | Display | Unit display on/off |
 | Beep | Beep sounds on/off |
 | Health/Ion | Ionizer |
-| Frost Prevention | 8°C minimum temp mode |
 
 ## Protocol Docs
 
-See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the byte-level details if you want to understand or extend this.
+See [reference/PROTOCOL.md](reference/PROTOCOL.md) for the byte-level details if you want to understand or extend this.
 
 ## Credits
 
