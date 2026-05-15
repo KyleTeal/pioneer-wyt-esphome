@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/sensor/sensor.h"
@@ -13,6 +14,13 @@ namespace pioneer_minisplit {
 
 // Forward declaration
 class PioneerMinisplit;
+
+// Struct for persisting swing state to flash
+struct SwingState {
+  uint8_t swing_v;
+  bool swing_v_active;
+  uint8_t swing_h;
+};
 
 // Switch types (only for features not covered by climate presets/modes)
 enum SwitchType : uint8_t {
@@ -208,6 +216,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   uint8_t pending_swing_v_ = 0x08;
   uint8_t pending_swing_h_ = 0x80;
   bool pending_swing_v_active_ = true;
+  ESPPreferenceObject pref_;
   bool pending_display_ = true;
   bool pending_beep_ = false;
   bool pending_eco_ = false;

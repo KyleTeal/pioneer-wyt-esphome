@@ -1,6 +1,7 @@
 #include "pioneer_minisplit.h"
 #include "esphome/core/log.h"
 #include "esphome/core/version.h"
+#include "esphome/core/preferences.h"
 
 namespace esphome {
 namespace pioneer_minisplit {
@@ -29,6 +30,17 @@ void PioneerMinisplit::setup() {
   // ESPHome 2026.4.0+: Set custom modes on entity (new API)
   this->set_supported_custom_fan_modes({"Strong"});
 #endif
+  
+  // Restore swing positions from flash
+  this->pref_ = global_preferences->make_preference<SwingState>(this->get_object_id_hash());
+  SwingState recovered{};
+  if (this->pref_.load(&recovered)) {
+    this->pending_swing_v_ = recovered.swing_v;
+    this->pending_swing_v_active_ = recovered.swing_v_active;
+    this->pending_swing_h_ = recovered.swing_h;
+    ESP_LOGI(TAG, "Restored swing state from flash: V=0x%02X active=%d, H=0x%02X", 
+             recovered.swing_v, recovered.swing_v_active, recovered.swing_h);
+  }
   
   this->send_heartbeat_();
 }
@@ -908,6 +920,14 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
       this->swing_h_select_->publish_state(value);
     }
   }
+  
+  // Save swing state to flash
+  SwingState state{};
+  state.swing_v = this->pending_swing_v_;
+  state.swing_v_active = this->pending_swing_v_active_;
+  state.swing_h = this->pending_swing_h_;
+  this->pref_.save(&state);
+  
   this->command_pending_ = true;
 }
 
