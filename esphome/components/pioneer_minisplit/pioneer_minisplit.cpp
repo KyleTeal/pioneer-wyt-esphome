@@ -121,14 +121,14 @@ void PioneerMinisplit::send_heartbeat_() {
 }
 
 void PioneerMinisplit::send_command_() {
-  // Command: BB 00 01 03 1C [28 bytes] [xor] = 34 bytes
-  uint8_t packet[34] = {0};
+  // Command: BB 00 01 03 1D [29 bytes] [xor] = 35 bytes
+  uint8_t packet[35] = {0};
   
   packet[0] = 0xBB;
   packet[1] = 0x00;
   packet[2] = 0x01;
   packet[3] = 0x03;
-  packet[4] = 0x1C;  // 28 bytes payload
+  packet[4] = 0x1D;  // 29 bytes payload
   
   // Byte 7: flags1 [eco, display, beep, ontimer, offtimer, power, 0, 0]
   uint8_t flags1 = 0;
@@ -163,15 +163,15 @@ void PioneerMinisplit::send_command_() {
   // Byte 19: sleep mode
   packet[19] = this->pending_sleep_;
   
-  // Byte 31: swing_v position
-  packet[31] = this->pending_swing_v_;
+  // Byte 32: swing_v position
+  packet[32] = this->pending_swing_v_;
   
-  // Byte 32: swing_h position
-  packet[32] = this->pending_swing_h_;
+  // Byte 33: swing_h position
+  packet[33] = this->pending_swing_h_;
   
-  packet[33] = this->calculate_checksum_(packet, 33);
+  packet[34] = this->calculate_checksum_(packet, 34);
   
-  this->write_array(packet, sizeof(packet));
+  this->write_array(packet, 35);
   this->flush();
   
   this->tx_count_++;
@@ -824,53 +824,46 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
   }
   
   if (type == SELECT_SWING_V) {
-    // Vertical swing positions from PROTOCOL.md
-    // TX: 0x08=Auto Swing, 0x88=Swing Upper, 0x48=Swing Lower
-    // Fixed: 0x20/0x24/0x28/0x2C/0x30 for positions 1-5
     if (value == "Off") {
       this->pending_swing_v_ = 0x00;
-    } else if (value == "Auto Swing") {
+    } else if (value == "Swing Auto") {
       this->pending_swing_v_ = 0x08;
     } else if (value == "Swing Upper") {
       this->pending_swing_v_ = 0x88;
     } else if (value == "Swing Lower") {
       this->pending_swing_v_ = 0x48;
-    } else if (value == "Fixed 1 (Top)") {
+    } else if (value == "Fixed Top") {
       this->pending_swing_v_ = 0x20;
-    } else if (value == "Fixed 2 (Upper)") {
+    } else if (value == "Fixed Upper") {
       this->pending_swing_v_ = 0x24;
-    } else if (value == "Fixed 3 (Middle)") {
+    } else if (value == "Fixed Middle") {
       this->pending_swing_v_ = 0x28;
-    } else if (value == "Fixed 4 (Mid-Low)") {
+    } else if (value == "Fixed Lower") {
       this->pending_swing_v_ = 0x2C;
-    } else if (value == "Fixed 5 (Bottom)") {
+    } else if (value == "Fixed Bottom") {
       this->pending_swing_v_ = 0x30;
     }
   } else if (type == SELECT_SWING_H) {
-    // Horizontal swing positions from PROTOCOL.md
-    // TX: byte32 for enable, byte19 for position
-    // Enable: 0x80=off, 0x81=auto swing, 0x82-0x84=partial swing
-    // Fixed: byte19 0x20-0x30 for positions 1-5
     if (value == "Off") {
       this->pending_swing_h_ = 0x80;
-    } else if (value == "Auto Swing") {
+    } else if (value == "Swing - Auto") {
+      this->pending_swing_h_ = 0x88;
+    } else if (value == "Swing - Left") {
+      this->pending_swing_h_ = 0x90;
+    } else if (value == "Swing - Center") {
+      this->pending_swing_h_ = 0x98;
+    } else if (value == "Swing - Right") {
+      this->pending_swing_h_ = 0xA0;
+    } else if (value == "Fixed Far Left") {
       this->pending_swing_h_ = 0x81;
-    } else if (value == "Swing Left") {
+    } else if (value == "Fixed Left") {
       this->pending_swing_h_ = 0x82;
-    } else if (value == "Swing Center") {
+    } else if (value == "Fixed Center") {
       this->pending_swing_h_ = 0x83;
-    } else if (value == "Swing Right") {
+    } else if (value == "Fixed Right") {
       this->pending_swing_h_ = 0x84;
-    } else if (value == "Fixed 1 (Far Left)") {
-      this->pending_swing_h_ = 0xA0;  // 0x80 | 0x20
-    } else if (value == "Fixed 2 (Left)") {
-      this->pending_swing_h_ = 0xA4;  // 0x80 | 0x24
-    } else if (value == "Fixed 3 (Center)") {
-      this->pending_swing_h_ = 0xA8;  // 0x80 | 0x28
-    } else if (value == "Fixed 4 (Right)") {
-      this->pending_swing_h_ = 0xAC;  // 0x80 | 0x2C
-    } else if (value == "Fixed 5 (Far Right)") {
-      this->pending_swing_h_ = 0xB0;  // 0x80 | 0x30
+    } else if (value == "Fixed Far Right") {
+      this->pending_swing_h_ = 0x85;
     }
   }
   this->command_pending_ = true;
