@@ -6,6 +6,20 @@
 namespace esphome {
 namespace pioneer_minisplit {
 
+namespace {
+
+const char *sleep_choice_for_select(uint8_t sleep) {
+  switch (sleep) {
+    case 0: return "Off";
+    case 1: return "Standard";
+    case 2: return "Elderly";
+    case 3: return "Child";
+    default: return "Off";
+  }
+}
+
+}  // namespace
+
 static const char *const TAG = "pioneer_minisplit";
 
 void PioneerMinisplit::update_history_(uint8_t *history, uint8_t value) {
@@ -253,9 +267,9 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   bool swing_h_active = (byte10 & 0x20) != 0;
   
   uint8_t sleep_mode = 0;
-  if (byte19 == 0x89) sleep_mode = 1;
-  else if (byte19 == 0x8A) sleep_mode = 2;
-  else if (byte19 == 0x8B) sleep_mode = 3;
+  if (byte19 == 0x89 || byte19 == 0xB1) sleep_mode = 1;
+  else if (byte19 == 0x8A || byte19 == 0xB2) sleep_mode = 2;
+  else if (byte19 == 0x8B || byte19 == 0xB3) sleep_mode = 3;
   
   bool heater_8c = (byte32 & 0x80) != 0;
   bool mute_flag = (byte33 & 0x80) != 0;
@@ -540,6 +554,10 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     if (this->swing_h_select_) {
       this->swing_h_select_->publish_state(this->swing_h_rx_str_(byte51, swing_h_active));
     }
+    if (this->sleep_select_) {
+      this->sleep_select_->publish_state(sleep_choice_for_select(sleep_mode));
+    }
+    this->pending_sleep_ = sleep_mode;
   }
 }
 
@@ -751,6 +769,10 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     } else {
       this->preset = climate::CLIMATE_PRESET_NONE;
     }
+
+    if (this->sleep_select_) {
+      this->sleep_select_->publish_state(sleep_choice_for_select(this->pending_sleep_));
+    }
     
     this->publish_state();
   }
@@ -834,13 +856,52 @@ void PioneerMinisplit::set_feature(SwitchType type, bool state) {
   this->command_pending_ = true;
 }
 
-// Swing position control from selects
+// Swing and sleep selects
 void PioneerMinisplit::set_swing_position(SelectType type, const std::string &value) {
   if (!this->state_synced_) {
     ESP_LOGW(TAG, "Ignoring select - waiting for initial state sync from HVAC");
     return;
   }
-  
+
+  if (type == SELECT_SLEEP) {
+    if (value == "Off") {
+      this->pending_sleep_ = 0;
+    } else if (value == "Standard") {
+      this->pending_sleep_ = 1;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    } else if (value == "Elderly") {
+      this->pending_sleep_ = 2;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    } else if (value == "Child") {
+      this->pending_sleep_ = 3;
+      this->pending_eco_ = false;
+      this->pending_turbo_ = false;
+    }
+    if (this->sleep_select_) this->sleep_select_->publish_state(value);
+
+    if (this->pending_eco_) {
+      this->preset = climate::CLIMATE_PRESET_ECO;
+    } else if (this->pending_turbo_) {
+      this->preset = climate::CLIMATE_PRESET_BOOST;
+    } else if (this->pending_sleep_ > 0) {
+      this->preset = climate::CLIMATE_PRESET_SLEEP;
+    } else {
+      this->preset = climate::CLIMATE_PRESET_NONE;
+    }
+    this->publish_state();
+
+    SwingState state{};
+    state.swing_v = this->pending_swing_v_;
+    state.swing_v_active = this->pending_swing_v_active_;
+    state.swing_h = this->pending_swing_h_;
+    this->pref_.save(&state);
+
+    this->command_pending_ = true;
+    return;
+  }
+
   if (type == SELECT_SWING_V) {
     // V uses same step pattern as H; H fixed/sweep adds 0x80 (see PROTOCOL / FIRMWARE_MAPPING).
     if (value == "Off") {

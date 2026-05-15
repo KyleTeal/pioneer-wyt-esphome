@@ -97,10 +97,13 @@ CONF_DISPLAY_SWITCH = "display_switch"
 CONF_BEEP_SWITCH = "beep_switch"
 CONF_HEALTH_SWITCH = "health_switch"
 CONF_HEATER_8C_SWITCH = "heater_8c_switch"
+# Manual "46°F freeze protection" / minimum heat: same BB bit as heater_8c_switch (TX byte10 b7, RX byte32 b7)
+CONF_FREEZE_PROTECTION_SWITCH = "freeze_protection_switch"
 
 # Select config keys
 CONF_SWING_V_SELECT = "swing_v_select"
 CONF_SWING_H_SELECT = "swing_h_select"
+CONF_SLEEP_SELECT = "sleep_select"
 
 # Aliases for easier config
 CONF_INDOOR_TEMP = "indoor_temp"
@@ -251,9 +254,11 @@ CONFIG_SCHEMA = climate._CLIMATE_SCHEMA.extend({
     cv.Optional(CONF_BEEP_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:volume-high"),
     cv.Optional(CONF_HEALTH_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:hospital-box"),
     cv.Optional(CONF_HEATER_8C_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:snowflake-thermometer"),
+    cv.Optional(CONF_FREEZE_PROTECTION_SWITCH): switch.switch_schema(PioneerSwitch, icon="mdi:snowflake-thermometer"),
     # Swing position selects
     cv.Optional(CONF_SWING_V_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-up-down"),
     cv.Optional(CONF_SWING_H_SELECT): select.select_schema(PioneerSelect, icon="mdi:arrow-left-right"),
+    cv.Optional(CONF_SLEEP_SELECT): select.select_schema(PioneerSelect, icon="mdi:sleep"),
     # Aliases
     cv.Optional(CONF_INDOOR_TEMP): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS, icon=ICON_THERMOMETER, accuracy_decimals=1,
@@ -508,8 +513,15 @@ async def to_code(config):
         cg.add(var.set_health_switch(sw))
         cg.add(sw.set_parent(var))
         cg.add(sw.set_type(2))  # HEALTH
+    if CONF_HEATER_8C_SWITCH in config and CONF_FREEZE_PROTECTION_SWITCH in config:
+        raise cv.Invalid("Use only one of heater_8c_switch and freeze_protection_switch")
     if CONF_HEATER_8C_SWITCH in config:
         sw = await switch.new_switch(config[CONF_HEATER_8C_SWITCH])
+        cg.add(var.set_heater_8c_switch(sw))
+        cg.add(sw.set_parent(var))
+        cg.add(sw.set_type(3))  # HEATER_8C
+    elif CONF_FREEZE_PROTECTION_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_FREEZE_PROTECTION_SWITCH])
         cg.add(var.set_heater_8c_switch(sw))
         cg.add(sw.set_parent(var))
         cg.add(sw.set_type(3))  # HEATER_8C
@@ -531,6 +543,13 @@ async def to_code(config):
         cg.add(var.set_swing_h_select(sel))
         cg.add(sel.set_parent(var))
         cg.add(sel.set_type(1))  # SWING_H
+    if CONF_SLEEP_SELECT in config:
+        sel = await select.new_select(config[CONF_SLEEP_SELECT], options=[
+            "Off", "Standard", "Elderly", "Child",
+        ])
+        cg.add(var.set_sleep_select(sel))
+        cg.add(sel.set_parent(var))
+        cg.add(sel.set_type(2))  # SLEEP
     # Swing aliases
     if CONF_SWING_VERTICAL in config:
         sel = await select.new_select(config[CONF_SWING_VERTICAL], options=[

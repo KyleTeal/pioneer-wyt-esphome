@@ -1,6 +1,6 @@
 # BB Protocol Reference
 
-Protocol documentation for Pioneer mini splits using the BB serial protocol over UART (9600 8E1).
+Canonical protocol documentation for Pioneer / TCL-style mini splits using the BB serial protocol over UART (9600 8E1). **Do not maintain a second copy** — `docs/PROTOCOL.md` redirects here.
 
 ## Serial Config
 
@@ -57,7 +57,7 @@ BB 00 01 04 02 01 00 [checksum]
 | 8 | 4 | Health/Ion |
 | 8 | 0-3 | Mode |
 | 9 | - | Temp: `111 - setpoint_celsius` |
-| 10 | 7 | 8°C Heater |
+| 10 | 7 | 8 °C heater (manual **46 °F freeze protection**, same BB bit) |
 | 10 | 3-5 | Vertical sweep enable (`0x38` while sweeping) |
 | 10 | 0-2 | Fan speed encoding |
 | 11 | — | Horizontal sweep: `0x08` when left/center/right/auto sweep TX values |
@@ -118,7 +118,7 @@ Values are `0x38 + offset`.
 | 10 | 5 | Swing H active |
 | 17-18 | - | Current temp (BE16 / 374 = °F) |
 | 19 | - | Sleep mode |
-| 32 | 7 | 8°C Heater |
+| 32 | 7 | 8 °C heater / 46 °F freeze protection |
 | 33 | 7 | Mute |
 | 35 | - | Outdoor temp (byte - 20 = °C) |
 | 36 | - | Condenser coil temp (°C) |
@@ -175,8 +175,23 @@ Quick reference for TX vs RX encoding:
 | Turbo | 8 | bit 6 | 7 | bit 7 |
 | Mute | 8 | bit 7 | 33 | bit 7 |
 | Health | 8 | bit 4 | 9 | bit 2 |
-| 8°C Heater | 10 | bit 7 | 32 | bit 7 |
-| Sleep | 19 | 0-3 | 19 | 0x88-0x8B |
+| 8 °C heater / 46 °F freeze | 10 | bit 7 | 32 | bit 7 |
+| Sleep | 19 | 0-3 | 19 | `0x89`/`0x8A`/`0x8B` or `0xB1`/`0xB2`/`0xB3` |
+
+YAML: **`heater_8c_switch`** or **`freeze_protection_switch`** (not both — same mechanism). **`heater_8c`** text sensor = RX flag.
+
+### Sleep modes (Tuya DP 105)
+
+Firmware strings map to ESPHome **`sleep_select`**: Off / Standard / Elderly / Child (`normal`→Standard, `old`→Elderly, `child`→Child).
+
+| Mode | TX byte 19 | RX (examples) |
+|------|------------|---------------|
+| Off | 0 | (not sleeping) |
+| Standard | 1 | `0x89` or `0xB1` |
+| Elderly | 2 | `0x8A` or `0xB2` |
+| Child | 3 | `0x8B` or `0xB3` |
+
+Climate **Sleep** preset sets Standard only (`pending_sleep_` = 1). Full DP 105 range is exposed via **`sleep_select`** when configured.
 
 ---
 

@@ -67,8 +67,17 @@ pioneer_minisplit:
     name: "Beep"
   health_switch:
     name: "Health"
+
+  # 46 °F freeze protection = 8 °C minimum-heat heater flag (TX byte10 b7 / RX byte32 b7).
+  # Use EITHER heater_8c_switch OR freeze_protection_switch (same backing switch).
+  # heater_8c_switch:
+  #   name: "8C Heater"
+  freeze_protection_switch:
+    name: "Freeze Protection"
   
-  # Swing controls (all optional)
+  # Swing / sleep selects (optional)
+  sleep_select:
+    name: "Sleep Mode"
   swing_vertical:
     name: "V Position"
   swing_horizontal:

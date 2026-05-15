@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "apiVersion": "1.0.0",
   "author": "pioneer-wyt-esphome",
-  "description": "Decodes the Pioneer/WYT mini-split BB protocol (9600 8E1, header 0xBB, length-delimited, XOR checksum). Primary output is the 'state' row: one row per change to the user-visible setting bytes (power/mode/fan/setpoint/timer/sleep/health/8c/mute/swing) inside an HVAC->controller status response (cmd 0x04). Each state row carries one column per byte plus decoded fields (mode, fan, set_temp_c, cur_temp_c, outdoor_c, sleep, swing positions, etc.) and a 'change' column showing exactly which bytes moved. Filter Logic 2 to type=state for the cross-reference table needed to map bytes to panel/Tuya-displayed status. Other types: status (every status frame, chatty), heartbeat, command (TX cmd 0x03), other, bad_csum, raw. See docs/PROTOCOL.md.",
+  "description": "Decodes the Pioneer/WYT mini-split BB protocol (9600 8E1, header 0xBB, length-delimited, XOR checksum). Primary output is the 'state' row: one row per change to the user-visible setting bytes (power/mode/fan/setpoint/timer/sleep/health/8c/mute/swing) inside an HVAC->controller status response (cmd 0x04). Each state row carries one column per byte plus decoded fields (mode, fan, set_temp_c, cur_temp_c, outdoor_c, sleep, swing positions, etc.) and a 'change' column showing exactly which bytes moved. Filter Logic 2 to type=state for the cross-reference table needed to map bytes to panel/Tuya-displayed status. Other types: status (every status frame, chatty), heartbeat, command (TX cmd 0x03), other, bad_csum, raw. See reference/PROTOCOL.md (canonical; docs/PROTOCOL.md redirects there).",
   "extensions": {
     "Pioneer BB": {
       "type": "HighLevelAnalyzer",

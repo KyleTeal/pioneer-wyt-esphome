@@ -16,8 +16,9 @@ esphome/tcl-*.yaml
 esphome/laser-*.yaml
 !esphome/example-*.yaml
 
-# Common includes (user-specific)
-esphome/01_common/
+# Shared includes: keep a committed example; ignore real `device_base.yaml` (local/secrets).
+esphome/01_common/*
+!esphome/01_common/device_base.example.yaml
 
 # Data analysis files (debug data, logs)
 Data/

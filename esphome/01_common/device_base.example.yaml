@@ -1,0 +1,22 @@
+# Copy to `device_base.yaml` (same folder). Used by `packages: !include 01_common/device_base.yaml`.
+# Requires `secrets.yaml` with: wifi_ssid, wifi_password, ap_password, api_key, ota_password.
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${node_name}-hotspot"
+    password: !secret ap_password
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+web_server:
+  port: 80

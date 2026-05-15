@@ -73,7 +73,9 @@ definitive Tuya DP string ↔ BB protocol byte mappings.
 
 ---
 
-## Comparison with PROTOCOL.md
+## Comparison with [PROTOCOL.md](PROTOCOL.md)
+
+Byte tables and RX/TX semantics: use **`reference/PROTOCOL.md`** (same directory as this file).
 
 ### Mode Values
 
@@ -213,7 +215,7 @@ DPs found in firmware and confirmed via [GitHub Issue #820](https://github.com/m
 | 18    | Humidity         | Int      | %                                              |
 | 20    | Error Code       | Bitfield | Fault codes                                    |
 | 101   | PM2.5            | Int      | μg/m³                                          |
-| 105   | Sleep Mode       | Enum     | off/normal/old/child                           |
+| 105   | Sleep Mode       | Enum     | off/normal/old/child; optional `sleep_select` in YAML |
 | 110   | Identification   | Bitfield | Device flags                                   |
 | 113   | V-Swing Mode     | String   | "0"=off, "1"=full, "2"=upper, "3"=lower        |
 | 114   | H-Swing Mode     | String   | "0"=off, "1"=full, "2"-"4"=zones               |

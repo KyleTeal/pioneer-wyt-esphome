@@ -34,6 +34,7 @@ enum SwitchType : uint8_t {
 enum SelectType : uint8_t {
   SELECT_SWING_V = 0,
   SELECT_SWING_H = 1,
+  SELECT_SLEEP = 2,
 };
 
 // Generic switch class
@@ -84,6 +85,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   // Select setters
   void set_swing_v_select(PioneerSelect *sel) { this->swing_v_select_ = sel; }
   void set_swing_h_select(PioneerSelect *sel) { this->swing_h_select_ = sel; }
+  void set_sleep_select(PioneerSelect *sel) { this->sleep_select_ = sel; }
 
   // Sensor setters
   void set_set_temp_sensor(sensor::Sensor *s) { set_temp_sensor_ = s; }
@@ -184,6 +186,7 @@ class PioneerMinisplit : public climate::Climate, public Component, public uart:
   // Selects
   PioneerSelect *swing_v_select_{nullptr};
   PioneerSelect *swing_h_select_{nullptr};
+  PioneerSelect *sleep_select_{nullptr};
 
   // RX buffer
   uint8_t rx_buffer_[64];

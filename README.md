@@ -46,8 +46,8 @@ Copy `example.yaml` to your ESPHome configs and customize it. Requires a `secret
 Creates a climate entity with:
 - **Modes:** Off, Cool, Heat, Dry, Fan Only, Auto
 - **Fan:** Auto, Quiet, Low, Medium, High, Strong
-- **Presets:** Eco, Boost (Turbo), Sleep
-- **Swing:** Separate select entities for precise vertical/horizontal positioning
+- **Presets:** Eco, Boost (Turbo), Sleep (Standard only)
+- **Swing / sleep selects:** Vertical and horizontal swing positions; optional `sleep_select` for DP 105 modes (Standard, Elderly, Child)
 
 ## Switches
 
