@@ -23,7 +23,7 @@ Stop:   1 bit
 | -------- | ------------------- | -------------------------------- |
 | HEADER   | 1                   | Always 0xBB                      |
 | DIR      | 1                   | 0x00 = to HVAC, 0x01 = from HVAC |
-| DIR2     | frost1 | 0x01 (to HVAC), 0x00 (from HVAC) |
+| DIR2     | 1                   | 0x01 (to HVAC), 0x00 (from HVAC) |
 | CMD      | 1                   | Command type                     |
 | LEN      | 1                   | Payload length                   |
 | PAYLOAD  | N                   | Variable                         |
@@ -61,8 +61,9 @@ BB 00 01 04 02 01 00 [checksum]
 | 8    | 0-3  | Mode                           |
 | 9    | -    | Temp: `111 - setpoint_celsius` |
 | 10   | 7    | 8°C Heater                     |
-| 10   | 3-5  | Vertical louver enable (0x38)  |
+| 10   | 3-5  | Vertical sweep enable (`0x38` while sweeping) |
 | 10   | 0-2  | Fan speed                      |
+| 11   | —    | Horizontal sweep: `0x08` when using auto/zone sweep TX values |
 | 19   | -    | Sleep mode (0-3)               |
 | 32   | -    | Vertical swing position        |
 | 33   | -    | Horizontal swing position      |
@@ -183,8 +184,7 @@ Quick reference for TX vs RX encoding:
 
 ### Vertical (TX byte 32, RX byte 51)
 
-**Important:** TX byte 10 bits 3-5 (0x38) must be set for sweeping modes only.
-For fixed positions, clear these bits (AND with 0xC7). This mirrors H swing byte 11 logic.
+Sweeping: set TX byte 10 bits 3-5 (`0x38`). Fixed louvers: clear those bits (`fan_byte & ~0x38`). Same role as byte 11 for horizontal sweep.
 
 
 | TX   | RX   | Position         |

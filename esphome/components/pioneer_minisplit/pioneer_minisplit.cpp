@@ -27,7 +27,6 @@ void PioneerMinisplit::setup() {
   ESP_LOGI(TAG, "Protocol: 9600 8E1, XOR checksum");
   
 #if ESPHOME_VERSION_CODE >= VERSION_CODE(2026, 4, 0)
-  // ESPHome 2026.4.0+: Set custom modes on entity (new API)
   this->set_supported_custom_fan_modes({"Strong"});
 #endif
   
@@ -454,11 +453,9 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
     }
   }
   
-  // Fan mode - Strong is custom, Quiet is standard CLIMATE_FAN_QUIET
   if (turbo && fan == 0x0B) {
     this->set_custom_fan_mode_("Strong");
   } else {
-    // Clear custom fan mode when using standard modes
     this->clear_custom_fan_mode_();
     if (mute_flag && fan == 0x09) {
       this->fan_mode = climate::CLIMATE_FAN_QUIET;
@@ -494,8 +491,7 @@ void PioneerMinisplit::decode_rx_packet_(uint8_t *buf, size_t len) {
   this->current_temperature = current_temp;
   this->publish_state();
   
-  // Only sync pending state from RX when no command is pending
-  // This prevents RX from overwriting a pending user change before it's sent
+  // While a command is pending, do not overwrite pending_* from RX
   if (!this->command_pending_) {
     this->pending_power_ = power;
     this->pending_temp_ = set_temp;
@@ -583,8 +579,7 @@ const char* PioneerMinisplit::sleep_str_(uint8_t sleep) {
 }
 
 const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active) {
-  // RX byte 50 values mirror TX byte 32 values
-  // When swing_active but byte50 is 0, unit is in auto swing mode
+  // byte50 often 0 while sweep is active; use swing_active to disambiguate.
   if (byte50 == 0x00 && swing_active) return "Swing - Auto";
   switch (byte50) {
     case 0x00: return "Off";
@@ -601,7 +596,6 @@ const char* PioneerMinisplit::swing_v_rx_str_(uint8_t byte50, bool swing_active)
 }
 
 const char* PioneerMinisplit::swing_h_rx_str_(uint8_t byte51, bool swing_active) {
-  // When swing_active but byte51 is 0, unit is in auto swing mode
   if (byte51 == 0x00 && swing_active) return "Swing - Auto";
   switch (byte51) {
     case 0x00: return "Off";
@@ -619,8 +613,7 @@ const char* PioneerMinisplit::swing_h_rx_str_(uint8_t byte51, bool swing_active)
 }
 
 void PioneerMinisplit::control(const climate::ClimateCall &call) {
-  // Don't allow commands until we've synced state from HVAC at least once
-  // This prevents sending commands with default/uninitialized values
+  // Block control() until the first valid status decode (avoids bad defaults).
   if (!this->state_synced_) {
     ESP_LOGW(TAG, "Ignoring command - waiting for initial state sync from HVAC");
     return;
@@ -672,7 +665,7 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->command_pending_ = true;
   }
   
-  // Handle custom fan mode (Strong only - Quiet is now standard CLIMATE_FAN_QUIET)
+  // Custom fan mode: Strong (Quiet uses CLIMATE_FAN_QUIET).
   if (call.has_custom_fan_mode()) {
     auto custom_fan = call.get_custom_fan_mode();
     this->pending_turbo_ = false;
@@ -712,9 +705,6 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     this->command_pending_ = true;
   }
   
-  // Swing mode removed from climate - use separate select entities instead
-
-  // Optimistic state update - publish immediately, RX will correct if needed
   if (this->command_pending_) {
     // Update mode from pending values
     if (!this->pending_power_) {
@@ -734,11 +724,9 @@ void PioneerMinisplit::control(const climate::ClimateCall &call) {
     
     this->target_temperature = this->pending_temp_;
     
-    // Update fan mode based on pending state
     if (this->pending_turbo_) {
       this->set_custom_fan_mode_("Strong");
     } else {
-      // Clear custom fan mode when switching to standard mode
       this->clear_custom_fan_mode_();
       if (this->pending_mute_) {
         this->fan_mode = climate::CLIMATE_FAN_QUIET;
@@ -784,7 +772,7 @@ climate::ClimateTraits PioneerMinisplit::traits() {
     climate::CLIMATE_MODE_HEAT_COOL
   });
   
-  // Standard fan modes: Auto, Quiet, Low, Medium, High (Strong is custom)
+  // Fan: Auto, Quiet, Low, Medium, High; Strong is custom.
   traits.set_supported_fan_modes({
     climate::CLIMATE_FAN_AUTO,
     climate::CLIMATE_FAN_QUIET,
@@ -794,12 +782,8 @@ climate::ClimateTraits PioneerMinisplit::traits() {
   });
 
 #if ESPHOME_VERSION_CODE < VERSION_CODE(2026, 4, 0)
-  // Pre-2026.4.0: Set custom fan modes on traits (old API)
   traits.set_supported_custom_fan_modes({"Strong"});
 #endif
-  // 2026.4.0+: Custom fan modes are set in setup() and wired automatically
-  
-  // Swing modes removed from climate - use separate select entities instead
   
   // Standard presets
   traits.set_supported_presets({
@@ -858,9 +842,7 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
   }
   
   if (type == SELECT_SWING_V) {
-    // V swing mirrors H swing pattern but without the 0x80 base
-    // H: Off=0x80, Auto=0x88, Left=0x90, Center=0x98, Right=0xA0, Fixed=0x81-0x85
-    // V: Off=0x00, Auto=0x08, Upper=0x10, Lower=0x18, Fixed=0x01-0x05
+    // V uses same step pattern as H; H fixed/sweep adds 0x80 (see PROTOCOL / FIRMWARE_MAPPING).
     if (value == "Off") {
       this->pending_swing_v_active_ = false;
       this->pending_swing_v_ = 0x00;
@@ -889,7 +871,6 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
       this->pending_swing_v_active_ = false;
       this->pending_swing_v_ = 0x05;
     }
-    // Immediately publish the selected value to the select
     if (this->swing_v_select_) {
       this->swing_v_select_->publish_state(value);
     }
@@ -915,13 +896,11 @@ void PioneerMinisplit::set_swing_position(SelectType type, const std::string &va
     } else if (value == "Fixed Far Right") {
       this->pending_swing_h_ = 0x85;
     }
-    // Immediately publish the selected value to the select
     if (this->swing_h_select_) {
       this->swing_h_select_->publish_state(value);
     }
   }
   
-  // Save swing state to flash
   SwingState state{};
   state.swing_v = this->pending_swing_v_;
   state.swing_v_active = this->pending_swing_v_active_;
